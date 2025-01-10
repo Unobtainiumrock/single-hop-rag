@@ -1,0 +1,6 @@
+# ignore the context embeddings as faiss index
+context_embeddings.pkl
+faiss_index.bin
+
+# don't include the app.log
+app.log
