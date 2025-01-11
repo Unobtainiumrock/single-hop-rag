@@ -5,4 +5,5 @@ faiss_index.bin
 # don't include the app.log
 app.log
 
+# Other
 __pycache__
