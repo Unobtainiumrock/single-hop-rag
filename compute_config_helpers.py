@@ -1,3 +1,6 @@
+import os
+
+
 def determine_batch_size(device: str) -> int:
     """
     Determines the batch size dynamically based on the available device and resources.
