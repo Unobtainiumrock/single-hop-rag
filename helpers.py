@@ -12,14 +12,25 @@ DEVICE = "cuda" if torch.cuda.is_available() else ""
 
 
 def save_embeddings(embeddings: np.ndarray, file_path: str) -> None:
-    """Saves embeddings to a file."""
+    """
+    Save embeddings to a file.
+
+    :param embeddings: The numpy array of embeddings to save.
+    :param file_path: The path to the file where embeddings will be saved.
+    :return: None
+    """
     with open(file_path, "wb") as f:
         pickle.dump(embeddings, f)
     main_logger.info(f"Embeddings saved to {file_path}.")
 
 
 def load_embeddings(file_path: str) -> np.ndarray:
-    """Loads embeddings from a file."""
+    """
+    Load embeddings from a file.
+
+    :param file_path: The path to the file where embeddings are stored.
+    :return: The loaded numpy array of embeddings.
+    """
     with open(file_path, "rb") as f:
         embeddings = pickle.load(f)
     main_logger.info(f"Embeddings loaded from {file_path}.")
@@ -27,7 +38,13 @@ def load_embeddings(file_path: str) -> np.ndarray:
 
 
 def save_faiss_index(index: faiss.Index, file_path: str) -> None:
-    """Saves a FAISS index to a file (CPU index only)."""
+    """
+    Save a FAISS index to a file (CPU index only).
+
+    :param index: The FAISS index to save.
+    :param file_path: The path to the file where the index will be saved.
+    :return: None
+    """
     if isinstance(index, faiss.IndexFlatL2) and DEVICE == "cuda":
         index = faiss.index_gpu_to_cpu(index)
     faiss.write_index(index, file_path)
@@ -35,30 +52,29 @@ def save_faiss_index(index: faiss.Index, file_path: str) -> None:
 
 
 def load_faiss_index(file_path: str) -> faiss.Index:
-    """Loads a FAISS index from a file."""
+    """
+    Load a FAISS index from a file.
+
+    :param file_path: The path to the file where the index is stored.
+    :return: The loaded FAISS index.
+    """
     index = faiss.read_index(file_path)
     main_logger.info(f"FAISS index loaded from {file_path}.")
     return index
 
 
-# ------------------- Compute Config Helpers -------------------
-
 def determine_batch_size(device: str) -> int:
     """
-    Determines the batch size dynamically based on the available device and resources.
+    Determine the batch size dynamically based on the available device and resources.
 
-    Args:
-        device (str): The computation device ("cuda" or "cpu").
-
-    Returns:
-        int: Recommended batch size for the device.
+    :param device: The computation device ("cuda" or "cpu").
+    :return: Recommended batch size for the device.
     """
     if device == "cuda":
         # Check GPU properties
         import torch
         gpu_properties = torch.cuda.get_device_properties(0)
-        vram_gb = gpu_properties.total_memory / \
-            (1024 ** 3)  # Convert VRAM to GB
+        vram_gb = gpu_properties.total_memory / (1024 ** 3)  # Convert VRAM to GB
 
         # Set batch size based on VRAM
         if vram_gb >= 16:  # High-end GPU
