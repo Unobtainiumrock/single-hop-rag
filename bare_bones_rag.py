@@ -14,8 +14,7 @@ from transformers import pipeline
 from flask import Flask, request, jsonify
 
 from loggers import main_logger, embed_logger
-from compute_config_helpers import determine_batch_size
-from helpers import save_embeddings, load_embeddings, save_faiss_index, load_faiss_index
+from helpers import save_embeddings, load_embeddings, save_faiss_index, load_faiss_index, determine_batch_size
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
@@ -50,7 +49,16 @@ NUM_PROC = max(os.cpu_count() - 2, 1)  # Leave 2 CPUs free
 
 
 def initialize_environment() -> None:
-    """Initialize the environment by setting up models, embeddings, and FAISS index."""
+    """
+    Initialize the environment by setting up models, embeddings, and FAISS index.
+
+    This function prepares the embedding model, QA pipeline, and FAISS index. If pre-existing embeddings
+    and index files are found, they are loaded. Otherwise, embeddings are generated, normalized,
+    and saved, and a new FAISS index is created. The FAISS index is transferred to GPU if available.
+
+    :raises RuntimeError: If model or FAISS initialization fails.
+    """
+
     global INDEX, CONTEXTS, NUM_PROC, embedding_model, qa_pipeline, dataset
 
     # Initialize Embedding Model
@@ -122,21 +130,15 @@ def initialize_environment() -> None:
 
 def normalize_embeddings(func: Callable[..., np.ndarray]) -> Callable[..., np.ndarray]:
     """
-    A decorator to normalize embeddings returned by the wrapped function.
+    Decorator to normalize embeddings returned by the wrapped function.
 
-    The wrapped function must return a numpy array of shape `(N, dim)`,
-    where `N` is the number of embeddings and `dim` is the embedding dimension.
-    Each row (embedding) in the array will be normalized to have unit L2 norm.
+    Each row of the output embeddings will be normalized to have a unit L2 norm.
 
-    Raises:
-        ValueError: If the output of the wrapped function is not a numpy array.
-
-    Args:
-        func (Callable[..., np.ndarray]): The function to be decorated. It should return a numpy array.
-
-    Returns:
-        Callable[..., np.ndarray]: A wrapper function that normalizes the embeddings returned by `func`.
+    :param func: The function that returns embeddings to be normalized.
+    :return: A wrapped function that normalizes the embeddings.
+    :raises ValueError: If the output of the wrapped function is not a numpy array.
     """
+
     def wrapper(*args: Any, **kwargs: Any) -> np.ndarray:
         embeddings = func(*args, **kwargs)
         if not isinstance(embeddings, np.ndarray):
@@ -154,46 +156,28 @@ def normalize_embeddings(func: Callable[..., np.ndarray]) -> Callable[..., np.nd
 @normalize_embeddings
 def encode_texts(texts: List[str]) -> np.ndarray:
     """
-    Encodes a batch of texts into float32 embeddings and normalizes them.
+    Encode a batch of texts into normalized float32 embeddings.
 
-    This function uses the `embedding_model` to convert a list of input texts
-    into numerical embeddings. The embeddings are returned as a numpy array
-    of type `float32` and are normalized to have unit L2 norm for each row.
+    This function uses the global `embedding_model` to encode input texts into numerical embeddings.
 
-    Args:
-        texts (List[str]): A list of input strings to be encoded.
-
-    Returns:
-        np.ndarray: A numpy array of shape `(N, dim)` where `N` is the number
-        of input texts and `dim` is the dimensionality of the embeddings. Each
-        row in the array represents the normalized embedding of a corresponding text.
+    :param texts: A list of strings to encode.
+    :return: An array of shape `(N, dim)` containing the normalized embeddings.
     """
+
     emb = embedding_model.encode(texts, convert_to_tensor=False)
     return np.asarray(emb, dtype=np.float32)
 
 
 def embed_contexts(batch: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Embeds a batch of contexts and appends the resulting normalized embeddings to the batch.
+    Embed a batch of contexts and append normalized embeddings to the batch.
 
-    This function takes a dictionary representing a batch of data, where `batch["context"]`
-    contains a list of textual contexts. It encodes these contexts into numerical embeddings,
-    normalizes the embeddings, and appends them to the batch under the key `batch["embeddings"]`.
-
-    Args:
-        batch (Dict[str, Any]): A dictionary containing the key "context", which is expected
-        to be a list of strings representing the textual data to embed.
-
-    Returns:
-        Dict[str, Any]: The input batch dictionary with an additional key, "embeddings",
-        which contains a numpy array of shape `(N, dim)` where `N` is the number of contexts
-        and `dim` is the embedding dimensionality. Each row in the array represents the
-        normalized embedding of the corresponding context.
-
-    Raises:
-        KeyError: If the "context" key is missing from the input batch.
-        ValueError: If `batch["context"]` is not a list of strings.
+    :param batch: A dictionary with a "context" key containing a list of strings to embed.
+    :return: The input batch with an additional "embeddings" key containing the embeddings.
+    :raises KeyError: If the "context" key is missing from the input batch.
+    :raises ValueError: If the "context" key is not a list of strings.
     """
+    
     logger = logging.getLogger("embed_contexts")
 
     # Validate input batch
@@ -217,21 +201,13 @@ def embed_contexts(batch: Dict[str, Any]) -> Dict[str, Any]:
 @normalize_embeddings
 def encode_query(query: str) -> np.ndarray:
     """
-    Encodes a single query into a normalized embedding.
+    Encode a single query into a normalized embedding.
 
-    This function uses the `embedding_model` to encode a single input query string 
-    into a numerical embedding. The embedding is returned as a normalized numpy 
-    array of shape `(1, dim)`, where `dim` is the dimensionality of the embedding.
-
-    Args:
-        query (str): The input query string to be encoded.
-
-    Returns:
-        np.ndarray: A numpy array of shape `(1, dim)` containing the normalized embedding.
-
-    Raises:
-        ValueError: If the input query is not a string or is empty.
+    :param query: The query string to encode.
+    :return: A 2D array of shape `(1, dim)` containing the normalized embedding.
+    :raises ValueError: If the query is not a non-empty string.
     """
+
     # Validate input
     if not isinstance(query, str) or not query.strip():
         raise ValueError("Query must be a non-empty string.")
@@ -246,23 +222,15 @@ def encode_query(query: str) -> np.ndarray:
 def retrieve_contexts(query: str,
                       top_k: int = DEFAULT_TOP_K_CONTEXTS) -> List[str]:
     """
-    Retrieve the top_k most relevant contexts for a given query using the global FAISS index.
+    Retrieve the top_k most relevant contexts for a query using the FAISS index.
 
-    This function encodes the input query into a normalized embedding, performs a search 
-    on the FAISS index, and retrieves the corresponding contexts from the global `CONTEXTS` list.
-
-    Args:
-        query (str): The input query string for which relevant contexts are to be retrieved.
-        top_k (int): The number of top contexts to retrieve. Defaults to `DEFAULT_TOP_K_CONTEXTS`.
-
-    Returns:
-        List[str]: A list of up to `top_k` retrieved contexts, ranked by relevance.
-
-    Raises:
-        ValueError: If the global `CONTEXTS` or `INDEX` is not initialized, if `top_k` is not a 
-        positive integer, or if `top_k` exceeds the number of available contexts.
-        RuntimeError: If the FAISS search fails due to an unexpected error.
+    :param query: The input query string.
+    :param top_k: The number of top contexts to retrieve. Defaults to `DEFAULT_TOP_K_CONTEXTS`.
+    :return: A list of retrieved contexts ranked by relevance.
+    :raises ValueError: If `CONTEXTS` or `INDEX` is not initialized, or if `top_k` is invalid.
+    :raises RuntimeError: If FAISS search fails.
     """
+
     # Validate global variables
     if not CONTEXTS or INDEX is None:
         raise ValueError("CONTEXTS or INDEX is not initialized.")
@@ -305,24 +273,13 @@ def generate_answer(query: str,
                     top_k: int = DEFAULT_TOP_K_CONTEXTS
                     ) -> Dict[str, Any]:
     """
-    Generates an answer to a query by retrieving relevant contexts and using a QA pipeline.
+    Generate an answer to a query using relevant contexts and a QA pipeline.
 
-    This function retrieves the top_k most relevant contexts for the given query using 
-    the `retrieve_contexts` function, then uses a QA pipeline to generate answers 
-    based on those contexts. It returns the best answer along with all retrieved answers.
-
-    Args:
-        query (str): The input query string for which an answer is to be generated.
-        top_k (int): The number of top contexts to retrieve. Defaults to `DEFAULT_TOP_K_CONTEXTS`.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing:
-            - "best_answer" (str): The best answer generated by the QA pipeline, or None if no answer is found.
-            - "all_answers" (List[Dict[str, Any]]): A list of all answers with their scores, sorted in descending order.
-
-    Raises:
-        ValueError: If `retrieve_contexts` fails due to uninitialized globals or invalid parameters.
-        RuntimeError: If the QA pipeline encounters an unexpected error.
+    :param query: The input query string.
+    :param top_k: The number of top contexts to retrieve. Defaults to `DEFAULT_TOP_K_CONTEXTS`.
+    :return: A dictionary containing the best answer and all retrieved answers.
+    :raises ValueError: If context retrieval fails.
+    :raises RuntimeError: If the QA pipeline encounters an error.
     """
     main_logger.debug("Generating answer for query: %s", query)
 
@@ -365,24 +322,14 @@ def evaluate_rag(questions: List[str],
                  top_k_contexts: int = DEFAULT_TOP_K_CONTEXTS
                  ) -> Dict[str, Any]:
     """
-    Evaluates the RAG (Retrieval-Augmented Generation) system by calculating precision@k and recall@k.
+    Evaluate the Retrieval-Augmented Generation (RAG) system using precision@k and recall@k.
 
-    This function computes the precision and recall metrics at various values of `k` for a set of
-    questions. It retrieves the top_k most relevant contexts for each question, generates answers 
-    using the QA pipeline, and compares the generated answers against the ground truth.
-
-    Args:
-        questions (List[str]): A list of input questions to evaluate.
-        ground_truth_answers (List[Any]): The ground truth answers corresponding to each question.
-            Each element can be a single answer (str) or a list of answers (List[str]).
-        k_values (List[int]): A list of integer values for `k` to calculate precision@k and recall@k.
-        top_k_contexts (int): The number of contexts to retrieve for each query. Defaults to `DEFAULT_TOP_K_CONTEXTS`.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing precision@k and recall@k for each value in `k_values`.
-
-    Raises:
-        ValueError: If `questions` or `ground_truth_answers` are empty, or if their lengths do not match.
+    :param questions: A list of questions to evaluate.
+    :param ground_truth_answers: Ground truth answers for each question.
+    :param k_values: Values of k for computing precision and recall metrics.
+    :param top_k_contexts: The number of contexts to retrieve for each query.
+    :return: A dictionary containing precision@k and recall@k metrics.
+    :raises ValueError: If inputs are invalid or mismatched.
     """
     main_logger.info("Starting RAG evaluation...")
 
