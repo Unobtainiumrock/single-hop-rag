@@ -44,7 +44,7 @@ embed_logger = setup_logger("embed_contexts", level=logging.WARNING)
 
 # Suppress verbosity from external libraries
 logging.getLogger("transformers").setLevel(logging.WARNING)
-logging.getLogger("datasets").setLevel(logging.WARNING)
+logging.getLogger("datasets").setLevel(logging.WARNING) 
 
 # ---------------------- Global/Default Config --------------------
 DEFAULT_TOP_K_CONTEXTS = 5
@@ -135,12 +135,12 @@ if os.path.exists(embedding_file) and os.path.exists(faiss_index_file):
     
     # Load dataset to populate `contexts`
     dataset = load_dataset("squad", split="train[:50%]")
-    contexts = dataset["context"]  # Store as a simple list
+    contexts = dat  aset["context"]  # Store as a simple list
     contexts, questions, answers = dataset["context"], dataset["question"], dataset["answers"]
     print("=" * 50 + "\n")
     print(f"Question:{questions[0]}" + "\n")
     print(f"Answer: {answers[0]}" + "\n")
-    print(f"Context:{contexts[0]}" + "\n")
+    print(f"Context:{contexts[0]}" + "\n    ")
     print("=" * 50)
 
 else:
