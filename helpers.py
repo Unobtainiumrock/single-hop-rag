@@ -5,48 +5,51 @@ import torch
 import os
 
 from loggers import main_logger  # Import the logger
+from typing import Tuple, List
+from config import CONFIG
 
-DEVICE = "cuda" if torch.cuda.is_available() else ""
+DEVICE = CONFIG.get("DEVICE")
 
 # ------------------- Save/Load Embeddings and Index -------------------
 
 
-def save_embeddings(embeddings: np.ndarray, file_path: str) -> None:
+def save_embeddings(data: Tuple[np.ndarray, List[str]], file_path: str) -> None:
     """
-    Save embeddings to a file.
-
-    :param embeddings: The numpy array of embeddings to save.
-    :param file_path: The path to the file where embeddings will be saved.
-    :return: None
+    Save embeddings and contexts to a file.
+    
+    :param data: A tuple containing the numpy array of embeddings and a list of contexts.
+    :param file_path: The path to the file where embeddings and contexts will be stored.
     """
     with open(file_path, "wb") as f:
-        pickle.dump(embeddings, f)
-    main_logger.info(f"Embeddings saved to {file_path}.")
+        pickle.dump(data, f)
+    main_logger.info(f"Embeddings and contexts saved to {file_path}.")
 
 
-def load_embeddings(file_path: str) -> np.ndarray:
+def load_embeddings(file_path: str) -> Tuple[np.ndarray, List[str]]:
     """
-    Load embeddings from a file.
+    Load embeddings and contexts from a file.
 
-    :param file_path: The path to the file where embeddings are stored.
-    :return: The loaded numpy array of embeddings.
+    :param file_path: The path to the file where embeddings and contexts are stored.
+    :return: A tuple containing the numpy array of embeddings and a list of contexts.
     """
     with open(file_path, "rb") as f:
-        embeddings = pickle.load(f)
-    main_logger.info(f"Embeddings loaded from {file_path}.")
-    return embeddings
+        embeddings, contexts = pickle.load(f)
+    main_logger.info(f"Embeddings and contexts loaded from {file_path}.")
+    return embeddings, contexts
 
 
 def save_faiss_index(index: faiss.Index, file_path: str) -> None:
     """
-    Save a FAISS index to a file (CPU index only).
+    Save a FAISS index to a file, ensuring it is on the CPU.
 
     :param index: The FAISS index to save.
     :param file_path: The path to the file where the index will be saved.
     :return: None
     """
-    if isinstance(index, faiss.IndexFlatL2) and DEVICE == "cuda":
+    # Ensure the index is on the CPU before saving
+    if DEVICE == "cuda" and hasattr(index, "index_gpu_to_cpu"):
         index = faiss.index_gpu_to_cpu(index)
+
     faiss.write_index(index, file_path)
     main_logger.info(f"FAISS index saved to {file_path}.")
 
@@ -92,3 +95,15 @@ def determine_batch_size(device: str) -> int:
             return 16
         else:
             return 8
+
+def transfer_faiss_to_gpu():
+    """
+    Transfer the FAISS index to GPU.
+    """
+    main_logger.info("Transferring FAISS index to GPU...")
+    try:
+        res = faiss.StandardGpuResources()
+        resources["faiss_index"] = faiss.index_cpu_to_gpu(res, 0, resources["faiss_index"])
+        main_logger.info("FAISS index successfully transferred to GPU.")
+    except RuntimeError as e:
+        main_logger.warning(f"GPU transfer failed. Using CPU index: {str(e)}")
