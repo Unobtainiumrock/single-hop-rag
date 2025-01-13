@@ -1,4 +1,4 @@
-import faiss
+# import faiss
 import numpy as np
 import os
 import json
@@ -36,9 +36,11 @@ def retrieve_contexts(query: str, top_k: int = CONFIG.get("DEFAULT_TOP_K_CONTEXT
     if top_k <= 0:
         raise ValueError("`top_k` must be a positive integer.")
     if top_k > len(contexts):
-        raise ValueError("`top_k` cannot exceed the number of available contexts.")
+        raise ValueError(
+            "`top_k` cannot exceed the number of available contexts.")
 
-    main_logger.debug("Retrieving contexts for query: '%s', top_k: %d", query, top_k)
+    main_logger.debug(
+        "Retrieving contexts for query: '%s', top_k: %d", query, top_k)
 
     # Encode the query (normalized by the decorator)
     query_embedding = encode_query(query)
@@ -57,7 +59,8 @@ def retrieve_contexts(query: str, top_k: int = CONFIG.get("DEFAULT_TOP_K_CONTEXT
 
     # Retrieve the actual contexts based on indices
     retrieved_contexts = [contexts[idx] for idx in indices[0]]
-    main_logger.debug("Retrieved %d contexts for query.", len(retrieved_contexts))
+    main_logger.debug("Retrieved %d contexts for query.",
+                      len(retrieved_contexts))
 
     return retrieved_contexts
 
@@ -87,14 +90,16 @@ def generate_answer(query: str, top_k: int = CONFIG.get("DEFAULT_TOP_K_CONTEXTS"
     # Batch the question-context pairs for faster processing
     try:
         qa_pipeline = resources.get("qa_pipeline")
-        batch_inputs = [{"question": query, "context": cxt} for cxt in relevant_contexts]
+        batch_inputs = [{"question": query, "context": cxt}
+                        for cxt in relevant_contexts]
         raw_answers = qa_pipeline(batch_inputs)
     except Exception as e:
         main_logger.error(f"QA pipeline error: {str(e)}")
         raw_answers = []
 
     # Sort answers by score in descending order
-    answers_sorted = sorted(raw_answers, key=lambda x: x["score"], reverse=True) if raw_answers else []
+    answers_sorted = sorted(
+        raw_answers, key=lambda x: x["score"], reverse=True) if raw_answers else []
     best_answer = answers_sorted[0] if answers_sorted else {
         "answer": None, "score": 0.0}
 
@@ -127,13 +132,20 @@ def evaluate_rag(
     """
     main_logger.info("Starting RAG evaluation...")
 
+    main.logger.info("Getting qa_pipeline")
+    qa_pipeline = resources.get("qa_pipeline")
+
+    if not qa_pipeline:
+        raise ValueError("QA pipeline is not initialized.")
+
     # Validate input lengths
     if not questions:
         raise ValueError("No questions provided for evaluation.")
     if not ground_truth_answers:
         raise ValueError("No ground truth answers provided for evaluation.")
     if len(questions) != len(ground_truth_answers):
-        raise ValueError("Mismatch between the number of questions and ground truth answers.")
+        raise ValueError(
+            "Mismatch between the number of questions and ground truth answers.")
 
     # Ensure ground_truth_answers is a list of sets for efficient membership checks
     ground_truth_answers = [
@@ -151,20 +163,24 @@ def evaluate_rag(
 
     # Iterate over each question and its corresponding ground truth answers
     for i, (question, ground_truth) in enumerate(zip(questions, ground_truth_answers)):
-        main_logger.info(f"Evaluating question {i + 1}/{total_questions}: {question}")
+        main_logger.info(
+            f"Evaluating question {i + 1}/{total_questions}: {question}")
 
         # Retrieve top_k_contexts for the current question
         try:
-            retrieved_contexts: List[str] = retrieve_contexts(question, top_k=top_k_contexts)
+            retrieved_contexts: List[str] = retrieve_contexts(
+                question, top_k=top_k_contexts)
             # retrieved_contexts shape: [top_k_contexts]
         except Exception as e:
-            main_logger.error(f"Error retrieving contexts for question '{question}': {str(e)}")
+            main_logger.error(
+                f"Error retrieving contexts for question '{question}': {str(e)}")
             continue
 
         # Generate answers using the QA pipeline
         try:
             # Prepare batch inputs: list of dicts with 'question' and 'context'
-            batch_inputs: List[Dict[str, str]] = [{"question": question, "context": cxt} for cxt in retrieved_contexts]
+            batch_inputs: List[Dict[str, str]] = [
+                {"question": question, "context": cxt} for cxt in retrieved_contexts]
             raw_answers: List[Dict[str, Any]] = qa_pipeline(batch_inputs)
             # raw_answers shape: [top_k_contexts], each dict contains 'answer' and 'score'
 
@@ -173,7 +189,8 @@ def evaluate_rag(
                 raw_answers, key=lambda x: x["score"], reverse=True
             )
         except Exception as e:
-            main_logger.error(f"Error generating answers for question '{question}': {str(e)}")
+            main_logger.error(
+                f"Error generating answers for question '{question}': {str(e)}")
             continue
 
         # Extract the top-k answers up to the maximum k value
@@ -232,7 +249,8 @@ def ask_question():
         return jsonify({"error": "No question provided", "code": 400}), 400
 
     # Retrieve top_k (optional)
-    top_k_contexts = data.get("top_k_contexts", CONFIG.get("DEFAULT_TOP_K_CONTEXTS"))
+    top_k_contexts = data.get(
+        "top_k_contexts", CONFIG.get("DEFAULT_TOP_K_CONTEXTS"))
 
     # Generate answer
     try:
@@ -279,7 +297,8 @@ def evaluate_model():
         return jsonify({"error": "Questions or ground truth answers not provided", "code": 400}), 400
 
     # Optional parameters
-    top_k_contexts = data.get("top_k_contexts", CONFIG.get("DEFAULT_TOP_K_CONTEXTS"))
+    top_k_contexts = data.get(
+        "top_k_contexts", CONFIG.get("DEFAULT_TOP_K_CONTEXTS"))
     k_values = data.get("k_values", CONFIG.get("K_VALUES_FOR_METRICS"))
 
     # Perform evaluation
@@ -308,7 +327,6 @@ def main():
     # Initialize the environment: load models, embeddings, FAISS index
     initialize_environment()
     main_logger.info("Environment initialization complete.")
-
 
     # Hardcoded test context
     test_context = """
@@ -344,6 +362,6 @@ def main():
     main_logger.info("Starting Flask app...")
     app.run(port=5000)
 
+
 if __name__ == "__main__":
     main()
-

@@ -6,6 +6,7 @@ from datasets import Dataset
 from config import CONFIG
 from resources import resources
 
+
 def normalize_embeddings(func: Callable[..., np.ndarray]) -> Callable[..., np.ndarray]:
     """
     Decorator to normalize embeddings returned by the wrapped function.
@@ -26,9 +27,10 @@ def normalize_embeddings(func: Callable[..., np.ndarray]) -> Callable[..., np.nd
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         # To avoid division by zero for any zero vector
         norms[norms == 0] = 1e-12
-        return embeddings / norms
+        return (embeddings / norms).astype(np.float32)
 
     return wrapper
+
 
 @normalize_embeddings
 def encode_query(query: str) -> np.ndarray:
@@ -51,6 +53,7 @@ def encode_query(query: str) -> np.ndarray:
     # Ensure the result is a 2D numpy array with a single row
     return np.asarray([q_embedding], dtype=np.float32)
 
+
 @normalize_embeddings
 def encode_texts(texts: List[str]) -> np.ndarray:
     """
@@ -66,7 +69,7 @@ def encode_texts(texts: List[str]) -> np.ndarray:
     embeddings = embedding_model.encode(texts, convert_to_tensor=False)
     return np.asarray(embeddings, dtype=np.float32)
 
-    
+
 def embed_contexts(batch: Dict[str, Any]) -> Dict[str, Any]:
     """
     Embed a batch of contexts and append normalized embeddings to the batch.
@@ -112,7 +115,8 @@ def generate_embeddings_with_batching(unique_contexts_dataset: Dataset) -> np.nd
     :param unique_contexts_dataset: A Hugging Face Dataset containing only unique contexts.
     :return: A numpy array of embeddings.
     """
-    main_logger.info("Generating embeddings with batching using dataset.map...")
+    main_logger.info(
+        "Generating embeddings with batching using dataset.map...")
     embedding_model = resources.get("embedding_model")
     if embedding_model is None:
         main_logger.error("Embedding model is not initialized in resources.")
@@ -125,19 +129,22 @@ def generate_embeddings_with_batching(unique_contexts_dataset: Dataset) -> np.nd
             contexts,
             convert_to_tensor=False,
             show_progress_bar=False,
-            batch_size=CONFIG.get("BATCH_SIZE", 64)  # Use CONFIG batch size or default to 64
+            # Use CONFIG batch size or default to 64
+            batch_size=CONFIG.get("BATCH_SIZE", 64)
         )
-        return {"embeddings": embeddings}
+        return {"embeddings": np.asarray(embeddings, dtype=np.float32)}
 
     # Use dataset.map for batched processing
     embedded_dataset = unique_contexts_dataset.map(
         embed_contexts,
         batched=True,
         batch_size=CONFIG.get("BATCH_SIZE", 64),
-        num_proc=1 if CONFIG.get("DEVICE", "cpu") == "cuda" else CONFIG.get("NUM_PROC", 4)
+        num_proc=1 if CONFIG.get(
+            "DEVICE", "cpu") == "cuda" else CONFIG.get("NUM_PROC", 4)
     )
 
     # Stack all embeddings into a single numpy array
-    context_embeddings = np.vstack(embedded_dataset["embeddings"])
+    context_embeddings = np.vstack(
+        embedded_dataset["embeddings"]).astype(np.float32)
     main_logger.info(f"Generated embeddings shape: {context_embeddings.shape}")
     return context_embeddings

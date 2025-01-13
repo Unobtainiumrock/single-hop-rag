@@ -17,7 +17,6 @@ from helpers import (
 )
 
 from embeddings import generate_embeddings_with_batching
-from typing import Dict, Any, List
 from config import CONFIG
 from resources import resources
 
